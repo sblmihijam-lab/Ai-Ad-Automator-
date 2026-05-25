@@ -1,0 +1,169 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Sparkles, Image, Zap, Brain } from "lucide-react";
+
+const PHASE_CONFIG = {
+  transcribing: {
+    icon: Zap,
+    color: "#F5C842",
+    label: "Transcribing audio",
+    sub: "Converting your voice to text via Whisper…",
+    progress: 15,
+  },
+  processing: {
+    icon: Brain,
+    color: "#4F8EF7",
+    label: "AI is thinking",
+    sub: "Extracting caption, audience, budget & image prompt…",
+    progress: 45,
+  },
+  "generating-image": {
+    icon: Image,
+    color: "#8B5CF6",
+    label: "Generating your visual",
+    sub: "DALL-E 3 is painting your ad image…",
+    progress: 75,
+  },
+  deploying: {
+    icon: Sparkles,
+    color: "#2DD4BF",
+    label: "Going live",
+    sub: "Pushing your campaign to Meta Graph API…",
+    progress: 92,
+  },
+};
+
+// Simulated time messages to keep user engaged
+const TIME_MESSAGES = [
+  "This can take 15–40 seconds…",
+  "Great things take a moment…",
+  "Almost there…",
+  "Crafting perfection…",
+];
+
+export default function ProcessingOverlay({ phase, stepLabel }) {
+  const config = PHASE_CONFIG[phase] || PHASE_CONFIG.processing;
+  const Icon = config.icon;
+  const [msgIndex, setMsgIndex] = useState(0);
+  const [displayProgress, setDisplayProgress] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((i) => (i + 1) % TIME_MESSAGES.length);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Animate progress bar smoothly toward target
+  useEffect(() => {
+    const target = config.progress;
+    const step = target > displayProgress ? 1 : -1;
+    const id = setInterval(() => {
+      setDisplayProgress((p) => {
+        if (Math.abs(p - target) < 2) { clearInterval(id); return target; }
+        return p + step;
+      });
+    }, 20);
+    return () => clearInterval(id);
+  }, [config.progress]);
+
+  return (
+    <div className="w-full animate-scale-in">
+      <div className="glass-card p-10 flex flex-col items-center gap-8 text-center">
+
+        {/* ── Animated icon orb ────────────────────────────── */}
+        <div className="relative">
+          <div
+            className="w-20 h-20 rounded-2xl flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, ${config.color}22, ${config.color}08)`,
+              border: `1px solid ${config.color}30`,
+              boxShadow: `0 0 40px ${config.color}25`,
+              animation: "float 3s ease-in-out infinite",
+            }}
+          >
+            <Icon
+              className="w-9 h-9"
+              style={{ color: config.color }}
+              strokeWidth={1.5}
+            />
+          </div>
+
+          {/* Orbiting dot */}
+          <div
+            className="absolute w-3 h-3 rounded-full top-0 right-0"
+            style={{
+              background: config.color,
+              boxShadow: `0 0 8px ${config.color}`,
+              animation: "pulse-ring 1.5s ease-out infinite",
+            }}
+          />
+        </div>
+
+        {/* ── Labels ─────────────────────────────────────── */}
+        <div>
+          <h2
+            className="font-display text-xl font-semibold mb-2"
+            style={{ color: config.color }}
+          >
+            {config.label}
+          </h2>
+          <p className="font-body text-sm text-white/50 leading-relaxed">
+            {stepLabel || config.sub}
+          </p>
+        </div>
+
+        {/* ── Progress bar ────────────────────────────────── */}
+        <div className="w-full space-y-2">
+          <div className="flex justify-between text-xs font-mono text-white/30">
+            <span>Progress</span>
+            <span>{displayProgress}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${displayProgress}%`,
+                background: `linear-gradient(90deg, ${config.color}80, ${config.color})`,
+                boxShadow: `0 0 8px ${config.color}50`,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* ── Step dots ───────────────────────────────────── */}
+        <div className="flex items-center gap-3">
+          {Object.entries(PHASE_CONFIG).map(([key, cfg]) => {
+            const isActive = key === phase;
+            const isDone =
+              Object.keys(PHASE_CONFIG).indexOf(key) <
+              Object.keys(PHASE_CONFIG).indexOf(phase);
+
+            return (
+              <div key={key} className="flex items-center gap-3">
+                <div
+                  className="w-2 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    background: isDone
+                      ? cfg.color
+                      : isActive
+                        ? cfg.color
+                        : "rgba(255,255,255,0.15)",
+                    boxShadow: isActive ? `0 0 8px ${cfg.color}` : "none",
+                    transform: isActive ? "scale(1.4)" : "scale(1)",
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Time hint ───────────────────────────────────── */}
+        <p className="font-body text-xs text-white/25">
+          {TIME_MESSAGES[msgIndex]}
+        </p>
+      </div>
+    </div>
+  );
+}

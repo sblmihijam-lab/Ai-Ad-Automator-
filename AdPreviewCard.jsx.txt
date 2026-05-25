@@ -1,0 +1,317 @@
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
+import {
+  MapPin,
+  DollarSign,
+  Users,
+  MessageSquare,
+  Wand2,
+  RotateCcw,
+  ChevronRight,
+  Instagram,
+  Facebook,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
+
+export default function AdPreviewCard({
+  adData,
+  imageUrl,
+  transcript,
+  onDeploy,
+  onReset,
+}) {
+  const [editField, setEditField] = useState(null); // which field is being edited
+  const [localData, setLocalData] = useState({ ...adData });
+  const [deploying, setDeploying] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  const handleEdit = (field) => setEditField(field);
+  const handleSave = (field, value) => {
+    setLocalData((prev) => ({ ...prev, [field]: value }));
+    setEditField(null);
+  };
+  const handleCancel = () => setEditField(null);
+
+  const handleDeployClick = async () => {
+    setDeploying(true);
+    await onDeploy(localData);
+    setDeploying(false);
+  };
+
+  const platformIcons = {
+    Instagram: Instagram,
+    Facebook: Facebook,
+  };
+
+  const platforms =
+    localData.platforms || ["Instagram", "Facebook"];
+
+  return (
+    <div className="w-full animate-scale-in space-y-4">
+
+      {/* ── Transcript bubble ──────────────────────────────── */}
+      <div className="glass-card px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-full bg-aurora-blue/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <MessageSquare className="w-3.5 h-3.5 text-aurora-blue" />
+          </div>
+          <div>
+            <p className="text-xs text-white/35 font-body mb-1 uppercase tracking-widest">
+              Your brief
+            </p>
+            <p className="text-sm text-white/70 font-body leading-relaxed italic">
+              "{transcript}"
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main preview card ─────────────────────────────── */}
+      <div className="glass-card overflow-hidden">
+
+        {/* Generated image */}
+        <div className="relative w-full aspect-square sm:aspect-video bg-white/[0.03]">
+          {!imageLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-aurora-violet/30 border-t-aurora-violet rounded-full animate-spin" />
+            </div>
+          )}
+          <img
+            src={imageUrl}
+            alt="Generated ad visual"
+            className={`w-full h-full object-cover transition-opacity duration-500 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+            onLoad={() => setImageLoaded(true)}
+          />
+
+          {/* Platform badges */}
+          <div className="absolute top-3 right-3 flex gap-2">
+            {platforms.map((p) => {
+              const Icon = platformIcons[p] || Instagram;
+              return (
+                <div
+                  key={p}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-body font-medium text-white"
+                  style={{
+                    background: "rgba(10,10,20,0.75)",
+                    backdropFilter: "blur(10px)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                  }}
+                >
+                  <Icon className="w-3 h-3" />
+                  {p}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Image prompt tag */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 py-3"
+            style={{ background: "linear-gradient(to top, rgba(6,6,14,0.9), transparent)" }}
+          >
+            <div className="flex items-center gap-1.5">
+              <Wand2 className="w-3 h-3 text-aurora-violet/70 flex-shrink-0" />
+              <p className="text-xs text-white/45 font-body leading-tight line-clamp-2">
+                {localData.imagePrompt}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Ad details */}
+        <div className="p-6 space-y-5">
+
+          {/* Caption */}
+          <EditableField
+            label="Ad Caption"
+            icon={<MessageSquare className="w-4 h-4" />}
+            value={localData.caption}
+            field="caption"
+            isEditing={editField === "caption"}
+            onEdit={() => handleEdit("caption")}
+            onSave={handleSave}
+            onCancel={handleCancel}
+            multiline
+          />
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 gap-3">
+            <EditableField
+              label="Budget"
+              icon={<DollarSign className="w-4 h-4" />}
+              value={localData.budget}
+              field="budget"
+              isEditing={editField === "budget"}
+              onEdit={() => handleEdit("budget")}
+              onSave={handleSave}
+              onCancel={handleCancel}
+              accent="#F5C842"
+            />
+            <EditableField
+              label="Location"
+              icon={<MapPin className="w-4 h-4" />}
+              value={localData.location}
+              field="location"
+              isEditing={editField === "location"}
+              onEdit={() => handleEdit("location")}
+              onSave={handleSave}
+              onCancel={handleCancel}
+              accent="#2DD4BF"
+            />
+          </div>
+
+          {/* Audience */}
+          <EditableField
+            label="Target Audience"
+            icon={<Users className="w-4 h-4" />}
+            value={localData.audience}
+            field="audience"
+            isEditing={editField === "audience"}
+            onEdit={() => handleEdit("audience")}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+
+          {/* Metadata tags */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {localData.objective && (
+              <span className="tag-pill">
+                🎯 {localData.objective}
+              </span>
+            )}
+            {localData.adType && (
+              <span className="tag-pill">
+                📐 {localData.adType}
+              </span>
+            )}
+            {localData.callToAction && (
+              <span className="tag-pill">
+                ⚡ CTA: {localData.callToAction}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Action buttons ────────────────────────────────── */}
+      <div className="flex gap-3">
+        <button onClick={onReset} className="btn-ghost flex-1 h-12">
+          <RotateCcw className="w-4 h-4" />
+          Start Over
+        </button>
+
+        <button
+          onClick={handleDeployClick}
+          disabled={deploying}
+          className="flex-[2] h-12 relative inline-flex items-center justify-center gap-2.5 px-6 rounded-xl font-display font-semibold text-sm tracking-wide transition-all duration-200 text-white overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed group"
+          style={{
+            background: "linear-gradient(135deg, #2DD4BF 0%, #4F8EF7 50%, #8B5CF6 100%)",
+            backgroundSize: "200% 100%",
+            backgroundPosition: "0% 0%",
+            boxShadow: "0 6px 30px rgba(79,142,247,0.4), inset 0 1px 0 rgba(255,255,255,0.2)",
+          }}
+        >
+          {deploying ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Deploying…
+            </>
+          ) : (
+            <>
+              <span>🚀</span>
+              Confirm & Deploy
+              <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+            </>
+          )}
+        </button>
+      </div>
+
+      <p className="text-center text-xs text-white/25 font-body">
+        This will create a live campaign in your Meta Ads Manager
+      </p>
+    </div>
+  );
+}
+
+// ── Inline editable field ────────────────────────────────────
+function EditableField({
+  label,
+  icon,
+  value,
+  field,
+  isEditing,
+  onEdit,
+  onSave,
+  onCancel,
+  multiline = false,
+  accent = "#4F8EF7",
+}) {
+  const [draft, setDraft] = useState(value);
+
+  return (
+    <div
+      className="rounded-xl p-4 group"
+      style={{
+        background: "rgba(255,255,255,0.03)",
+        border: `1px solid ${isEditing ? accent + "40" : "rgba(255,255,255,0.06)"}`,
+        transition: "border-color 0.2s",
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2" style={{ color: accent + "aa" }}>
+          {icon}
+          <span className="text-xs font-body uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.35)" }}>
+            {label}
+          </span>
+        </div>
+        {!isEditing ? (
+          <button
+            onClick={onEdit}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-white/[0.06]"
+          >
+            <Pencil className="w-3.5 h-3.5 text-white/35 hover:text-white/70" />
+          </button>
+        ) : (
+          <div className="flex gap-1">
+            <button
+              onClick={() => onSave(field, draft)}
+              className="p-1 rounded-lg bg-aurora-teal/20 hover:bg-aurora-teal/30 transition-colors"
+            >
+              <Check className="w-3.5 h-3.5 text-aurora-teal" />
+            </button>
+            <button
+              onClick={() => { setDraft(value); onCancel(); }}
+              className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] transition-colors"
+            >
+              <X className="w-3.5 h-3.5 text-white/50" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isEditing ? (
+        multiline ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            autoFocus
+            className="w-full bg-transparent text-sm text-white/90 font-body leading-relaxed outline-none resize-none"
+          />
+        ) : (
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoFocus
+            className="w-full bg-transparent text-sm text-white/90 font-body outline-none"
+          />
+        )
+      ) : (
+        <p className="text-sm text-white/80 font-body leading-relaxed">{value}</p>
+      )}
+    </div>
+  );
+}

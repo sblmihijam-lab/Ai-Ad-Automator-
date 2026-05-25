@@ -1,0 +1,308 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Mic, MicOff, RotateCcw } from "lucide-react";
+
+const EXAMPLE_PROMPTS = [
+  "Make an ad for my kids wear shop and run it on Instagram in Mumbai with ₹500 budget",
+  "Create a Facebook ad for my bakery in New York, target young adults, budget $20/day",
+  "Launch an Instagram ad for my yoga studio in London targeting women aged 25-40",
+];
+
+export default function VoiceInput({ phase, setPhase, onTranscript }) {
+  const [transcript, setTranscript] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [browserSupport, setBrowserSupport] = useState(true);
+  const [exampleIndex, setExampleIndex] = useState(0);
+
+  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  // Rotate example hints
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setExampleIndex((i) => (i + 1) % EXAMPLE_PROMPTS.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Detect browser support
+  useEffect(() => {
+    const hasWebSpeech = !!(
+      window.SpeechRecognition || window.webkitSpeechRecognition
+    );
+    const hasMediaDevices = !!navigator.mediaDevices?.getUserMedia;
+    setBrowserSupport(hasWebSpeech || hasMediaDevices);
+  }, []);
+
+  const stopAll = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    if (mediaRecorderRef.current?.state === "recording") {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setIsListening(false);
+  }, []);
+
+  // ── Web Speech API (real-time, no backend needed) ────────────
+  const startWebSpeech = useCallback(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setPhase("recording");
+    };
+
+    recognition.onresult = (event) => {
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) final += t + " ";
+        else interim += t;
+      }
+      setTranscript((prev) => prev + final || interim);
+    };
+
+    recognition.onerror = (e) => {
+      console.error("SpeechRecognition error:", e.error);
+      stopAll();
+      if (e.error === "not-allowed") {
+        alert("Microphone access denied. Please allow mic access and try again.");
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }, [setPhase, stopAll]);
+
+  // ── MediaRecorder → Whisper fallback ─────────────────────────
+  const startMediaRecorder = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioBlob(blob);
+        setPhase("transcribing");
+
+        // Send to Whisper API
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+
+        try {
+          const res = await fetch("/api/transcribe", {
+            method: "POST",
+            body: formData,
+          });
+          const { transcript: text } = await res.json();
+          if (text) {
+            setTranscript(text);
+            onTranscript(text);
+          }
+        } catch (err) {
+          console.error("Transcription failed:", err);
+          setPhase("idle");
+        }
+      };
+
+      recorder.start(250);
+      mediaRecorderRef.current = recorder;
+      setIsListening(true);
+      setPhase("recording");
+    } catch (err) {
+      console.error("MediaRecorder error:", err);
+      alert("Could not access microphone.");
+    }
+  }, [onTranscript, setPhase]);
+
+  // ── Master start/stop ────────────────────────────────────────
+  const handleMicToggle = useCallback(() => {
+    if (isListening) {
+      stopAll();
+      // If using Web Speech, process the accumulated transcript
+      if (recognitionRef.current && transcript.trim()) {
+        setPhase("transcribing");
+        setTimeout(() => onTranscript(transcript.trim()), 100);
+      }
+      // If MediaRecorder, onstop handles the rest
+    } else {
+      setTranscript("");
+      const hasWebSpeech = !!(
+        window.SpeechRecognition || window.webkitSpeechRecognition
+      );
+      if (hasWebSpeech) {
+        startWebSpeech();
+      } else {
+        startMediaRecorder();
+      }
+    }
+  }, [
+    isListening,
+    transcript,
+    stopAll,
+    startWebSpeech,
+    startMediaRecorder,
+    onTranscript,
+    setPhase,
+  ]);
+
+  // ── Use text directly (typed or example) ────────────────────
+  const handleUseText = useCallback(() => {
+    const text = transcript.trim();
+    if (!text) return;
+    stopAll();
+    setPhase("transcribing");
+    setTimeout(() => onTranscript(text), 100);
+  }, [transcript, stopAll, setPhase, onTranscript]);
+
+  const handleExampleClick = useCallback(() => {
+    setTranscript(EXAMPLE_PROMPTS[exampleIndex]);
+  }, [exampleIndex]);
+
+  return (
+    <div className="w-full animate-scale-in">
+      <div className="glass-card p-8 sm:p-10 flex flex-col items-center gap-8">
+
+        {/* ── Mic Button ─────────────────────────────────── */}
+        <div className="relative flex items-center justify-center">
+          {/* Pulse rings when recording */}
+          {isListening && (
+            <>
+              <span
+                className="absolute w-32 h-32 rounded-full border border-aurora-blue/30"
+                style={{ animation: "pulse-ring 2s ease-out infinite" }}
+              />
+              <span
+                className="absolute w-32 h-32 rounded-full border border-aurora-blue/20"
+                style={{ animation: "pulse-ring 2s ease-out 0.5s infinite" }}
+              />
+              <span
+                className="absolute w-32 h-32 rounded-full border border-aurora-blue/10"
+                style={{ animation: "pulse-ring 2s ease-out 1s infinite" }}
+              />
+            </>
+          )}
+
+          <button
+            onClick={handleMicToggle}
+            className={`
+              relative w-24 h-24 rounded-full flex items-center justify-center
+              transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-aurora-blue/50
+              ${
+                isListening
+                  ? "bg-red-500/90 shadow-[0_0_40px_rgba(239,68,68,0.5)]"
+                  : "bg-aurora-blue shadow-[0_0_40px_rgba(79,142,247,0.4)] hover:shadow-[0_0_60px_rgba(79,142,247,0.6)] hover:scale-105"
+              }
+            `}
+            aria-label={isListening ? "Stop recording" : "Start recording"}
+          >
+            {isListening ? (
+              <MicOff className="w-9 h-9 text-white" strokeWidth={1.8} />
+            ) : (
+              <Mic className="w-9 h-9 text-white" strokeWidth={1.8} />
+            )}
+          </button>
+        </div>
+
+        {/* ── Waveform (visible while recording) ─────────── */}
+        {isListening && (
+          <div className="flex items-center justify-center gap-1.5 h-10">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="wave-bar" />
+            ))}
+          </div>
+        )}
+
+        {/* ── Status / CTA text ───────────────────────────── */}
+        <div className="text-center">
+          {!isListening && !transcript && (
+            <>
+              <p className="font-display text-lg font-semibold text-white/90 mb-1">
+                Tap to speak your ad brief
+              </p>
+              <p className="font-body text-sm text-white/40">
+                Or type it below and click Run
+              </p>
+            </>
+          )}
+          {isListening && (
+            <p className="font-display text-base font-medium shimmer-text">
+              Listening… tap again to stop
+            </p>
+          )}
+          {!isListening && transcript && (
+            <p className="font-display text-base font-semibold text-aurora-teal">
+              Ready — review or submit below
+            </p>
+          )}
+        </div>
+
+        {/* ── Transcript textarea ─────────────────────────── */}
+        <div className="w-full">
+          <textarea
+            value={transcript}
+            onChange={(e) => setTranscript(e.target.value)}
+            placeholder="Or type your ad brief here…"
+            rows={3}
+            className="
+              w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3
+              font-body text-sm text-white/85 placeholder-white/25
+              resize-none outline-none focus:border-aurora-blue/50 focus:bg-white/[0.06]
+              transition-all duration-200 leading-relaxed
+            "
+          />
+
+          {/* Example hint */}
+          <button
+            onClick={handleExampleClick}
+            className="mt-2 text-xs text-white/30 hover:text-aurora-blue/80 transition-colors duration-200 text-left leading-snug"
+          >
+            💡 Try: "{EXAMPLE_PROMPTS[exampleIndex]}"
+          </button>
+        </div>
+
+        {/* ── Submit button ───────────────────────────────── */}
+        <button
+          onClick={handleUseText}
+          disabled={!transcript.trim() || isListening}
+          className="btn-primary w-full h-12 text-sm font-semibold tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <span>✦</span>
+          Generate Ad Campaign
+        </button>
+
+        {!browserSupport && (
+          <p className="text-xs text-amber-400/70 text-center">
+            ⚠ Your browser doesn't support the Web Speech API. Mic recording
+            will use Whisper instead.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

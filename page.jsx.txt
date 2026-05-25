@@ -1,0 +1,202 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import toast from "react-hot-toast";
+import VoiceInput from "@/components/VoiceInput";
+import ProcessingOverlay from "@/components/ProcessingOverlay";
+import AdPreviewCard from "@/components/AdPreviewCard";
+import StepIndicator from "@/components/StepIndicator";
+import SuccessScreen from "@/components/SuccessScreen";
+
+// ── App-level state machine ──────────────────────────────────
+// States: idle → recording → transcribing → processing →
+//         generating-image → preview → deploying → success
+
+const STEPS = [
+  { id: "voice", label: "Voice Input" },
+  { id: "ai", label: "AI Processing" },
+  { id: "preview", label: "Ad Preview" },
+  { id: "deploy", label: "Go Live" },
+];
+
+export default function HomePage() {
+  const [phase, setPhase] = useState("idle"); // main state machine
+  const [processingStep, setProcessingStep] = useState(""); // sub-label
+  const [transcript, setTranscript] = useState("");
+  const [adData, setAdData] = useState(null); // { caption, imagePrompt, location, budget, audience }
+  const [imageUrl, setImageUrl] = useState("");
+  const [campaignResult, setCampaignResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const activeStepIndex =
+    phase === "idle" || phase === "recording"
+      ? 0
+      : phase === "transcribing" || phase === "processing"
+        ? 1
+        : phase === "generating-image" || phase === "preview"
+          ? 2
+          : 3;
+
+  // ── Step 1: Voice → Transcript ──────────────────────────────
+  const handleTranscript = useCallback(async (text) => {
+    setTranscript(text);
+    setPhase("processing");
+    setProcessingStep("Analyzing your brief with AI...");
+
+    try {
+      // ── Step 2: LLM extracts structured ad data ─────────────
+      const processRes = await fetch("/api/process-ad", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: text }),
+      });
+
+      if (!processRes.ok) {
+        const err = await processRes.json();
+        throw new Error(err.error || "Failed to process ad brief");
+      }
+
+      const processed = await processRes.json();
+      setAdData(processed);
+      setProcessingStep("Generating your ad image...");
+      setPhase("generating-image");
+
+      // ── Step 3: Generate image via DALL-E 3 ─────────────────
+      const imgRes = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: processed.imagePrompt }),
+      });
+
+      if (!imgRes.ok) {
+        const err = await imgRes.json();
+        throw new Error(err.error || "Image generation failed");
+      }
+
+      const { imageUrl: url } = await imgRes.json();
+      setImageUrl(url);
+      setPhase("preview");
+      toast.success("Your ad is ready for review!");
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+      setPhase("idle");
+      toast.error(err.message || "Something went wrong. Please try again.");
+    }
+  }, []);
+
+  // ── Step 4: Deploy to Meta ──────────────────────────────────
+  const handleDeploy = useCallback(async () => {
+    setPhase("deploying");
+    setProcessingStep("Pushing campaign to Meta Graph API...");
+
+    try {
+      const deployRes = await fetch("/api/deploy-ad", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adData, imageUrl }),
+      });
+
+      if (!deployRes.ok) {
+        const err = await deployRes.json();
+        throw new Error(err.error || "Deployment failed");
+      }
+
+      const result = await deployRes.json();
+      setCampaignResult(result);
+      setPhase("success");
+      toast.success("🚀 Campaign is live on Meta!");
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+      setPhase("preview"); // revert to preview so user can retry
+      toast.error(err.message || "Deployment failed. Please try again.");
+    }
+  }, [adData, imageUrl]);
+
+  // ── Reset everything ────────────────────────────────────────
+  const handleReset = useCallback(() => {
+    setPhase("idle");
+    setTranscript("");
+    setAdData(null);
+    setImageUrl("");
+    setCampaignResult(null);
+    setError(null);
+    setProcessingStep("");
+  }, []);
+
+  const isProcessing =
+    phase === "transcribing" ||
+    phase === "processing" ||
+    phase === "generating-image" ||
+    phase === "deploying";
+
+  return (
+    <main className="min-h-screen flex flex-col items-center px-4 py-8 sm:py-16">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="w-full max-w-3xl mb-12 text-center animate-fade-up">
+        <div className="inline-flex items-center gap-2 tag-pill mb-5">
+          <span className="w-1.5 h-1.5 rounded-full bg-aurora-teal animate-pulse" />
+          <span>Powered by GPT-4o · DALL-E 3 · Meta Graph API</span>
+        </div>
+
+        <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.1] tracking-tight mb-4">
+          <span className="gradient-text">Agentic AI</span>
+          <br />
+          <span className="text-white/90">Ad Automator</span>
+        </h1>
+
+        <p className="font-body text-base sm:text-lg text-white/50 max-w-xl mx-auto leading-relaxed">
+          Speak your idea. Watch AI craft, design, and launch your Meta
+          campaign—in under 60 seconds.
+        </p>
+      </header>
+
+      {/* ── Step Indicator ─────────────────────────────────── */}
+      {phase !== "idle" && phase !== "success" && (
+        <div className="w-full max-w-lg mb-10 animate-fade-up">
+          <StepIndicator steps={STEPS} activeIndex={activeStepIndex} />
+        </div>
+      )}
+
+      {/* ── Main Content Area ──────────────────────────────── */}
+      <div className="w-full max-w-2xl flex flex-col items-center gap-6">
+
+        {/* Voice Input — shown on idle/recording */}
+        {(phase === "idle" || phase === "recording") && (
+          <VoiceInput
+            phase={phase}
+            setPhase={setPhase}
+            onTranscript={handleTranscript}
+          />
+        )}
+
+        {/* Processing overlay — shown during AI/image generation */}
+        {isProcessing && (
+          <ProcessingOverlay phase={phase} stepLabel={processingStep} />
+        )}
+
+        {/* Ad preview card — shown after generation */}
+        {phase === "preview" && adData && (
+          <AdPreviewCard
+            adData={adData}
+            imageUrl={imageUrl}
+            transcript={transcript}
+            onDeploy={handleDeploy}
+            onReset={handleReset}
+          />
+        )}
+
+        {/* Success screen */}
+        {phase === "success" && campaignResult && (
+          <SuccessScreen result={campaignResult} onReset={handleReset} />
+        )}
+      </div>
+
+      {/* ── Footer ─────────────────────────────────────────── */}
+      <footer className="mt-20 text-center font-body text-xs text-white/20">
+        Agentic AI Ad Automator · Built with Next.js + OpenAI + Meta Graph API
+      </footer>
+    </main>
+  );
+}
